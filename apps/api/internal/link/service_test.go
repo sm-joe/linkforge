@@ -195,3 +195,9 @@ func TestActiveLinkIsAvailable(t *testing.T) {
 		t.Fatal("expected active link to be available")
 	}
 }
+
+func (f *fakeRepository) List(
+	_ context.Context,
+) ([]*Link, error) {
+	return []*Link{}, nil
+}

@@ -179,3 +179,62 @@ func (r *SQLiteRepository) Delete(
 	return nil
 }
 
+func (r *SQLiteRepository) List(
+	ctx context.Context,
+) ([]*Link, error) {
+
+	rows, err := r.db.QueryContext(
+		ctx,
+		`
+		SELECT
+			id,
+			short_code,
+			alias,
+			destination,
+			status,
+			created_at,
+			expires_at
+		FROM links
+		ORDER BY created_at DESC
+		`,
+	)
+
+	if err != nil {
+		return nil, err
+	}
+
+	defer rows.Close()
+
+	var links []*Link
+
+	for rows.Next() {
+		var link Link
+		var expiresAt sql.NullTime
+
+		err := rows.Scan(
+			&link.ID,
+			&link.ShortCode,
+			&link.Alias,
+			&link.Destination,
+			&link.Status,
+			&link.CreatedAt,
+			&expiresAt,
+		)
+
+		if err != nil {
+			return nil, err
+		}
+
+		if expiresAt.Valid {
+			value := expiresAt.Time
+			link.ExpiresAt = &value
+		}
+
+		links = append(
+			links,
+			&link,
+		)
+	}
+
+	return links, rows.Err()
+}

@@ -39,6 +39,7 @@ func main() {
 	linkService := link.NewService(repository)
 
 	linkHandler := httpserver.NewLinkHandler(linkService)
+	listHandler := httpserver.NewListHandler(linkService)
 	managementHandler := httpserver.NewLinkManagementHandler(linkService)
 	redirectHandler := httpserver.NewRedirectHandler(linkService)
 
@@ -51,15 +52,30 @@ func main() {
 		},
 	)
 
+	// Create link + list links
 	mux.HandleFunc(
 		"/api/v1/links",
-		linkHandler.Create,
+		func(w http.ResponseWriter, r *http.Request) {
+			switch r.Method {
+
+			case http.MethodGet:
+				listHandler.List(w, r)
+
+			case http.MethodPost:
+				linkHandler.Create(w, r)
+
+			default:
+				http.NotFound(w, r)
+			}
+		},
 	)
 
+	// Manage individual links
 	mux.HandleFunc(
 		"/api/v1/links/",
 		func(w http.ResponseWriter, r *http.Request) {
 			switch {
+
 			case r.Method == http.MethodGet:
 				managementHandler.Get(w, r)
 
@@ -80,14 +96,17 @@ func main() {
 		},
 	)
 
+	// Public short URL redirect
 	mux.HandleFunc(
 		"/",
 		redirectHandler.Redirect,
 	)
 
 	server := &http.Server{
-		Addr:              ":" + cfg.Port,
-		Handler:           mux,
+		Addr: ":" + cfg.Port,
+		Handler: httpserver.WithCORS(
+			mux,
+		),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
@@ -117,6 +136,7 @@ func main() {
 	)
 
 	select {
+
 	case err := <-serverErrors:
 		logger.Error(
 			"server failed",
@@ -151,7 +171,9 @@ func main() {
 	logger.Info("LinkForge API stopped")
 }
 
-func writeHealthJSON(w http.ResponseWriter) {
+func writeHealthJSON(
+	w http.ResponseWriter,
+) {
 	w.Header().Set(
 		"Content-Type",
 		"application/json",

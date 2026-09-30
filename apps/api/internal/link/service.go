@@ -168,3 +168,10 @@ func (s *Service) DeleteLink(
 		shortCode,
 	)
 }
+
+func (s *Service) ListLinks(
+	ctx context.Context,
+) ([]*Link, error) {
+
+	return s.repository.List(ctx)
+}
