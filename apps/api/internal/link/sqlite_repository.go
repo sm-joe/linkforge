@@ -178,3 +178,4 @@ func (r *SQLiteRepository) Delete(
 
 	return nil
 }
+
