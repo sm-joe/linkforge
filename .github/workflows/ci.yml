@@ -2,6 +2,8 @@ name: LinkForge CI/CD Pipeline
 
 on:
   pull_request:
+    branches: 
+      - main
   push:
     branches:
       - main
@@ -15,13 +17,52 @@ env:
   WEB_IMAGE: ghcr.io/${{ github.repository_owner }}/linkforge-web
 
 jobs:
-  test:
-    name: Go Tests
+  changes:
+    name: Detect Changes
     runs-on: ubuntu-latest
+
+    outputs:
+      api: ${{ steps.filter.outputs.api }}
+      web: ${{ steps.filter.outputs.web }}
+      ci: ${{ steps.filter.outputs.ci }}
 
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          
+      - name: Path Filter
+        id: filter
+        uses: dorny/paths-filter@v4
+        with:
+          filters: |
+            api:
+              - 'apps/api/**'
+              - 'packages/url-validation/**'
+              - 'deploy/docker/api/**'
+
+            web:
+              - 'apps/web/**'
+              - 'deploy/docker/web/**'
+
+            ci:
+              - '.github/workflows/**'
+              - 'deploy/**'
+              - '.dockerignore'
+  test:
+    name: Go Tests
+    runs-on: ubuntu-latest
+    needs: changes
+    if: |
+      needs.changes.outputs.api == 'true' ||
+      needs.changes.outputs.ci == 'true'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
 
       - name: Setup Go
         uses: actions/setup-go@v7
@@ -48,7 +89,12 @@ jobs:
   secrets:
     name: Secret Scan
     runs-on: ubuntu-latest
-    needs: test
+    needs: changes
+
+    if: |
+      needs.changes.outputs.api == 'true' ||
+      needs.changes.outputs.web == 'true' ||
+      needs.changes.outputs.ci == 'true'
 
     steps:
       - name: Checkout
@@ -56,7 +102,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Gitleaks
+      - name: Run Gitleaks Scan
         uses: gitleaks/gitleaks-action@v3
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -64,14 +110,20 @@ jobs:
   sast:
     name: SAST
     runs-on: ubuntu-latest
-    needs: test
+    needs: changes
+    if: |
+      needs.changes.outputs.api == 'true' ||
+      needs.changes.outputs.web == 'true' ||
+      needs.changes.outputs.ci == 'true'
 
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
 
-      - name: Run Semgrep
-        uses: semgrep/semgrep-action@v1
+      - name: Run Semgrep Scan
+        uses: returntocorp/semgrep-action@v1
         with:
           config: >-
             p/default
@@ -82,13 +134,19 @@ jobs:
   dockerfile:
     name: Dockerfile Security
     runs-on: ubuntu-latest
-    needs: test
+    needs: changes
+    if: |
+      needs.changes.outputs.api == 'true' ||
+      needs.changes.outputs.web == 'true' ||
+      needs.changes.outputs.ci == 'true'
 
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
 
-      - name: Checkov
+      - name: Run Checkov Scan
         uses: bridgecrewio/checkov-action@v12
         with:
           directory: .
@@ -98,13 +156,19 @@ jobs:
   trivy-fs:
     name: Filesystem Security
     runs-on: ubuntu-latest
-    needs: test
+    needs: changes
+    if: |
+      needs.changes.outputs.api == 'true' ||
+      needs.changes.outputs.web == 'true' ||
+      needs.changes.outputs.ci == 'true'
 
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
 
-      - name: Trivy filesystem scan
+      - name: Trivy Filesystem Scan
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           version: "v0.74.0"
@@ -130,6 +194,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
 
       - name: Setup Buildx
         uses: docker/setup-buildx-action@v4
@@ -156,7 +222,7 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Trivy API image scan
+      - name: Trivy API Image Scan
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           version: "v0.74.0"
@@ -166,7 +232,7 @@ jobs:
           ignore-unfixed: true
           severity: CRITICAL,HIGH
 
-      - name: Trivy Web image scan
+      - name: Trivy Web Image Scan
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           version: "v0.74.0"
@@ -215,6 +281,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
 
       - name: Login to GHCR
         uses: docker/login-action@v4
@@ -226,7 +294,7 @@ jobs:
       - name: Setup Buildx
         uses: docker/setup-buildx-action@v4
 
-      - name: Publish API
+      - name: Publish API Image
         uses: docker/build-push-action@v7
         with:
           context: .
@@ -238,10 +306,11 @@ jobs:
           labels: |
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.version=${{ github.sha }}
             org.opencontainers.image.created=${{ github.event.head_commit.timestamp }}
           cache-from: type=gha
 
-      - name: Publish Web
+      - name: Publish Web Image
         uses: docker/build-push-action@v7
         with:
           context: .
@@ -253,5 +322,6 @@ jobs:
           labels: |
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.version=${{ github.sha }}
             org.opencontainers.image.created=${{ github.event.head_commit.timestamp }}
           cache-from: type=gha
