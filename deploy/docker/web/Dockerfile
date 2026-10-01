@@ -1,16 +1,22 @@
 # syntax=docker/dockerfile:1.7
 
 # ---------- Dependencies ----------
-FROM node:22-alpine AS deps
+FROM node:22-bookworm-slim AS deps
 
 WORKDIR /app
 
 COPY apps/web/package.json apps/web/package-lock.json ./
 
-RUN --mount=type=cache,target=/root/.npm npm ci
+RUN npm install -g npm@latest \
+    && npm cache clean --force
+
+RUN --mount=type=cache,id=linkforge-web-npm,target=/root/.npm \
+    npm ci \
+    --no-audit \
+    --no-fund
 
 # ---------- Build ----------
-FROM node:22-alpine AS builder
+FROM node:22-bookworm-slim AS builder
 
 WORKDIR /app
 
@@ -22,9 +28,7 @@ ENV NEXT_TELEMETRY_DISABLED=1
 RUN --mount=type=cache,target=/root/.npm npm run build
 
 # ---------- Runtime ----------
-FROM node:22-alpine AS runner
-
-#RUN npm install -g npm@latest && npm cache clean --force
+FROM node:22-bookworm-slim AS runner
 
 WORKDIR /app
 
@@ -33,8 +37,10 @@ ENV NODE_ENV=production \
     PORT=3000 \
     HOSTNAME=0.0.0.0
 
-RUN addgroup -S linkforge \
-    && adduser -S -G linkforge linkforge
+RUN rm -rf /usr/local/lib/node_modules/npm \
+    && rm -f /usr/local/bin/npm /usr/local/bin/npx \
+    && groupadd --system linkforge \
+    && useradd --system --gid linkforge --create-home linkforge
 
 COPY --from=builder --chown=linkforge:linkforge /app/.next/standalone ./
 COPY --from=builder --chown=linkforge:linkforge /app/.next/static ./.next/static
