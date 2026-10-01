@@ -5,6 +5,7 @@ services:
       dockerfile: deploy/docker/api/Dockerfile
     image: linkforge-api:local
     restart: unless-stopped
+    init: true
 
     environment:
       PORT: "8080"
@@ -51,6 +52,7 @@ services:
       dockerfile: deploy/docker/web/Dockerfile
     image: linkforge-web:local
     restart: unless-stopped
+    init: true
 
     environment:
       NODE_ENV: production
@@ -74,6 +76,10 @@ services:
     pids_limit: 100
     mem_limit: 512m
     cpus: "1.0"
+
+    depends_on:
+      api:
+        condition: service_healthy
 
 volumes:
   linkforge_data:
