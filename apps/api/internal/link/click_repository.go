@@ -43,8 +43,8 @@ type UserAgentStat struct {
 }
 
 type ClientIPStat struct {
-	IP     string
-	Clicks int64
+	IP     string `json:"ip"`
+	Clicks int64  `json:"clicks"`
 }
 
 func (r *ClickRepository) Record(

@@ -102,22 +102,24 @@ func main() {
 	mux.HandleFunc(
 		"/api/v1/links/",
 		func(w http.ResponseWriter, r *http.Request) {
+			path := strings.TrimSuffix(r.URL.Path, "/")
+
 			switch {
 			case r.Method == http.MethodGet &&
-				strings.HasSuffix(r.URL.Path, "/analytics"):
+				strings.HasSuffix(path, "/analytics"):
 				analyticsHandler.Get(w, r)
 
 			case r.Method == http.MethodGet &&
-				strings.HasSuffix(r.URL.Path, "/qr"):
-				qrHandler.Get(w, r)
+				strings.HasSuffix(path, "/health/history"):
+				healthHistoryHandler.Get(w, r)
 
 			case r.Method == http.MethodGet &&
-				strings.HasSuffix(r.URL.Path, "/health"):
+				strings.HasSuffix(path, "/health"):
 				healthHandler.Get(w, r)
 
 			case r.Method == http.MethodGet &&
-				strings.HasSuffix(r.URL.Path, "/health/history"):
-				healthHistoryHandler.Get(w, r)
+				strings.HasSuffix(path, "/qr"):
+				qrHandler.Get(w, r)
 
 			case r.Method == http.MethodGet:
 				managementHandler.Get(w, r)
@@ -126,11 +128,11 @@ func main() {
 				managementHandler.Delete(w, r)
 
 			case r.Method == http.MethodPost &&
-				strings.HasSuffix(r.URL.Path, "/disable"):
+				strings.HasSuffix(path, "/disable"):
 				managementHandler.Disable(w, r)
 
 			case r.Method == http.MethodPost &&
-				strings.HasSuffix(r.URL.Path, "/enable"):
+				strings.HasSuffix(path, "/enable"):
 				managementHandler.Enable(w, r)
 
 			default:
@@ -144,9 +146,18 @@ func main() {
 		redirectHandler.Redirect,
 	)
 
+	rateLimiter := httpserver.NewRateLimiter(
+		60,
+		time.Minute,
+	)
+
 	server := &http.Server{
-		Addr:              ":" + cfg.Port,
-		Handler:           httpserver.WithCORS(mux),
+		Addr: ":" + cfg.Port,
+		Handler: httpserver.SecurityHeaders(
+			httpserver.WithCORS(
+				rateLimiter.Middleware(mux),
+			),
+		),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 

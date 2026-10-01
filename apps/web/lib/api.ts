@@ -23,8 +23,10 @@ export interface LinkAnalytics {
     clicks: number;
   }[];
   client_ips: {
-    ip: string;
-    clicks: number;
+    ip?: string;
+    IP?: string;
+    clicks?: number;
+    Clicks?: number;
   }[];
 }
 

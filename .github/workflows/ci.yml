@@ -1,0 +1,257 @@
+name: LinkForge CI/CD Pipeline
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+env:
+  REGISTRY: ghcr.io
+  API_IMAGE: ghcr.io/${{ github.repository_owner }}/linkforge-api
+  WEB_IMAGE: ghcr.io/${{ github.repository_owner }}/linkforge-web
+
+jobs:
+  test:
+    name: Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Go
+        uses: actions/setup-go@v7
+        with:
+          go-version: "1.27"
+          cache: true
+
+      - name: Test API
+        working-directory: apps/api
+        run: go test ./...
+
+      - name: Vet API
+        working-directory: apps/api
+        run: go vet ./...
+
+      - name: Test URL validation
+        working-directory: packages/url-validation
+        run: go test ./...
+
+      - name: Vet URL validation
+        working-directory: packages/url-validation
+        run: go vet ./...
+
+  secrets:
+    name: Secret Scan
+    runs-on: ubuntu-latest
+    needs: test
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Gitleaks
+        uses: gitleaks/gitleaks-action@v3
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  sast:
+    name: SAST
+    runs-on: ubuntu-latest
+    needs: test
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Semgrep
+        uses: semgrep/semgrep-action@v1
+        with:
+          config: >-
+            p/default
+            p/golang
+            p/javascript
+            p/typescript
+
+  dockerfile:
+    name: Dockerfile Security
+    runs-on: ubuntu-latest
+    needs: test
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Checkov
+        uses: bridgecrewio/checkov-action@v12
+        with:
+          directory: .
+          framework: dockerfile
+          soft_fail: false
+
+  trivy-fs:
+    name: Filesystem Security
+    runs-on: ubuntu-latest
+    needs: test
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Trivy filesystem scan
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          version: "v0.74.0"
+          scan-type: fs
+          scan-ref: .
+          format: table
+          exit-code: "1"
+          ignore-unfixed: true
+          severity: CRITICAL,HIGH
+
+  build:
+    name: Container Build
+    runs-on: ubuntu-latest
+    needs:
+      - secrets
+      - sast
+      - dockerfile
+      - trivy-fs
+
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Build API image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: deploy/docker/api/Dockerfile
+          load: true
+          push: false
+          tags: linkforge-api:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build Web image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: deploy/docker/web/Dockerfile
+          load: true
+          push: false
+          tags: linkforge-web:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Trivy API image scan
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          version: "v0.74.0"
+          image-ref: linkforge-api:ci
+          format: table
+          exit-code: "1"
+          ignore-unfixed: true
+          severity: CRITICAL,HIGH
+
+      - name: Trivy Web image scan
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          version: "v0.74.0"
+          image-ref: linkforge-web:ci
+          format: table
+          exit-code: "1"
+          ignore-unfixed: true
+          severity: CRITICAL,HIGH
+
+      - name: Generate API SBOM
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          version: "v0.74.0"
+          image-ref: linkforge-api:ci
+          format: cyclonedx
+          output: api-sbom.cdx.json
+          exit-code: "0"
+
+      - name: Generate Web SBOM
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          version: "v0.74.0"
+          image-ref: linkforge-web:ci
+          format: cyclonedx
+          output: web-sbom.cdx.json
+          exit-code: "0"
+
+      - name: Upload SBOM
+        uses: actions/upload-artifact@v7
+        with:
+          name: linkforge-sbom
+          path: |
+            api-sbom.cdx.json
+            web-sbom.cdx.json
+
+  publish:
+    name: Publish to GHCR
+    runs-on: ubuntu-latest
+    needs: build
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Login to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Publish API
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: deploy/docker/api/Dockerfile
+          push: true
+          tags: |
+            ${{ env.API_IMAGE }}:${{ github.sha }}
+            ${{ env.API_IMAGE }}:latest
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.created=${{ github.event.head_commit.timestamp }}
+          cache-from: type=gha
+
+      - name: Publish Web
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: deploy/docker/web/Dockerfile
+          push: true
+          tags: |
+            ${{ env.WEB_IMAGE }}:${{ github.sha }}
+            ${{ env.WEB_IMAGE }}:latest
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.created=${{ github.event.head_commit.timestamp }}
+          cache-from: type=gha

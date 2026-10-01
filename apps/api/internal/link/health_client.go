@@ -27,7 +27,7 @@ func NewHealthClient(
 	}
 
 	transport := &http.Transport{
-		Proxy: http.ProxyFromEnvironment,
+		Proxy: nil,
 
 		TLSClientConfig: &tls.Config{
 			MinVersion: tls.VersionTLS12,

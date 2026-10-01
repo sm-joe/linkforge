@@ -632,7 +632,10 @@ export default function LinkCard({
 
           <AnalyticsGroup
             title="Client IPs"
-            items={analytics?.client_ips ?? []}
+            items={(analytics?.client_ips ?? []).map((item) => ({
+              name: item.ip ?? item.IP,
+              clicks: item.clicks ?? item.Clicks ?? 0,
+              }))}
           />
         </div>
       )}
