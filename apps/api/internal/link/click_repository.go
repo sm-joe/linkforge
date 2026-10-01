@@ -416,18 +416,24 @@ func (r *ClickRepository) ListByShortCode(
 	for rows.Next() {
 		var event ClickEvent
 
+		var clientIP sql.NullString
+
 		if err := rows.Scan(
 			&event.ID,
 			&event.ShortCode,
 			&event.ClickedAt,
 			&event.Referrer,
 			&event.UserAgent,
-			&event.ClientIP,
+			&clientIP,
 		); err != nil {
 			return nil, fmt.Errorf(
 				"scan click event: %w",
 				err,
 			)
+		}
+
+		if clientIP.Valid {
+			event.ClientIP = clientIP.String
 		}
 
 		event.ClickedAt = event.ClickedAt.UTC()

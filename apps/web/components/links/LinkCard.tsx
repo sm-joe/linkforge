@@ -629,6 +629,11 @@ export default function LinkCard({
             title="Devices"
             items={analytics?.devices ?? []}
           />
+
+          <AnalyticsGroup
+            title="Client IPs"
+            items={analytics?.client_ips ?? []}
+          />
         </div>
       )}
     </div>
@@ -640,6 +645,7 @@ interface AnalyticsGroupProps {
   items: {
     name?: string;
     referrer?: string;
+    ip?: string;
     clicks: number;
   }[];
 }
@@ -662,11 +668,11 @@ function AnalyticsGroup({
         <div className="mt-3 space-y-2">
           {items.map((item) => (
             <div
-              key={`${title}-${item.name ?? item.referrer}`}
+              key={`${title}-${item.name ?? item.referrer ?? item.ip}`}
               className="flex justify-between rounded-lg border border-slate-800 bg-slate-950 px-4 py-3 text-sm"
             >
               <span className="truncate text-slate-300">
-                {item.name ?? item.referrer}
+                {item.name ?? item.referrer ?? item.ip}
               </span>
 
               <span className="ml-4 shrink-0 text-slate-500">

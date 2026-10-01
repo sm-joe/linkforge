@@ -75,7 +75,8 @@ CREATE TABLE IF NOT EXISTS click_events (
     short_code TEXT NOT NULL,
     clicked_at DATETIME NOT NULL,
     referrer TEXT,
-    user_agent TEXT NOT NULL
+    user_agent TEXT NOT NULL,
+		client_ip TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_click_events_short_code

@@ -25,13 +25,14 @@ func NewAnalyticsHandler(
 }
 
 type analyticsResponse struct {
-	ShortCode   string               `json:"short_code"`
-	TotalClicks int64                `json:"total_clicks"`
-	FirstClick  *time.Time           `json:"first_click,omitempty"`
-	LastClick   *time.Time           `json:"last_click,omitempty"`
-	Referrers   []referrerResponse   `json:"referrers"`
-	Browsers    []userAgentResponse  `json:"browsers"`
-	Devices     []userAgentResponse  `json:"devices"`
+	ShortCode   string              `json:"short_code"`
+	TotalClicks int64               `json:"total_clicks"`
+	FirstClick  *time.Time          `json:"first_click,omitempty"`
+	LastClick   *time.Time          `json:"last_click,omitempty"`
+	Referrers   []referrerResponse  `json:"referrers"`
+	Browsers    []userAgentResponse `json:"browsers"`
+	Devices     []userAgentResponse `json:"devices"`
+	ClientIPs   []link.ClientIPStat `json:"client_ips"`
 }
 
 type referrerResponse struct {
@@ -155,6 +156,19 @@ func (h *AnalyticsHandler) Get(
 		return
 	}
 
+	clientIPs, err := h.clicks.ListClientIPsByShortCode(
+		r.Context(),
+		code,
+	)
+	if err != nil {
+		writeError(
+			w,
+			http.StatusInternalServerError,
+			"unable to read client IPs",
+		)
+		return
+	}
+
 	referrerResults := make(
 		[]referrerResponse,
 		0,
@@ -214,6 +228,7 @@ func (h *AnalyticsHandler) Get(
 			Referrers:   referrerResults,
 			Browsers:    browserResults,
 			Devices:     deviceResults,
+			ClientIPs:   clientIPs,
 		},
 	)
 }
