@@ -13,6 +13,10 @@ var (
 	ErrDestinationRequired = errors.New("destination URL is required")
 	ErrInvalidAlias        = errors.New("invalid alias")
 	ErrAliasTooLong        = errors.New("alias is too long")
+
+	ErrDestinationPrivateAddress = errors.New("destination resolves to a private or reserved address")
+
+	ErrDestinationDNSResolution = errors.New("destination DNS resolution failed")
 )
 
 const (
@@ -27,31 +31,89 @@ type CreateRequest struct {
 
 type Service struct {
 	repository Repository
+	resolver   urlvalidation.Resolver
 }
 
-func NewService(repository Repository) *Service {
+func NewService(
+	repository Repository,
+	resolvers ...urlvalidation.Resolver,
+) *Service {
+	var resolver urlvalidation.Resolver
+
+	if len(resolvers) > 0 {
+		resolver = resolvers[0]
+	}
+
 	return &Service{
 		repository: repository,
+		resolver:   resolver,
 	}
 }
 
-func (s *Service) ValidateDestination(destination string) error {
+func (s *Service) ValidateDestination(
+	destination string,
+) error {
+	return s.ValidateDestinationContext(
+		context.Background(),
+		destination,
+	)
+}
+
+func (s *Service) ValidateDestinationContext(
+	ctx context.Context,
+	destination string,
+) error {
 	destination = strings.TrimSpace(destination)
 
 	if destination == "" {
 		return ErrDestinationRequired
 	}
 
-	return urlvalidation.Validate(destination)
+	var err error
+
+	if s.resolver != nil {
+		err = urlvalidation.ValidateContextWithResolver(
+			ctx,
+			destination,
+			s.resolver,
+		)
+	} else {
+		err = urlvalidation.ValidateContext(
+			ctx,
+			destination,
+		)
+	}
+
+	switch {
+	case errors.Is(
+		err,
+		urlvalidation.ErrPrivateAddress,
+	):
+		return ErrDestinationPrivateAddress
+
+	case errors.Is(
+		err,
+		urlvalidation.ErrDNSResolution,
+	):
+		return ErrDestinationDNSResolution
+
+	default:
+		return err
+	}
 }
 
 func (s *Service) CreateLink(
 	ctx context.Context,
 	request CreateRequest,
 ) (*Link, error) {
-	destination := strings.TrimSpace(request.Destination)
+	destination := strings.TrimSpace(
+		request.Destination,
+	)
 
-	if err := s.ValidateDestination(destination); err != nil {
+	if err := s.ValidateDestinationContext(
+		ctx,
+		destination,
+	); err != nil {
 		return nil, err
 	}
 
@@ -172,6 +234,5 @@ func (s *Service) DeleteLink(
 func (s *Service) ListLinks(
 	ctx context.Context,
 ) ([]*Link, error) {
-
 	return s.repository.List(ctx)
 }

@@ -96,7 +96,9 @@ func (h *LinkHandler) Create(
 		switch {
 		case errors.Is(err, link.ErrDestinationRequired),
 			errors.Is(err, link.ErrInvalidAlias),
-			errors.Is(err, link.ErrAliasTooLong):
+			errors.Is(err, link.ErrAliasTooLong),
+			errors.Is(err, link.ErrDestinationPrivateAddress),
+			errors.Is(err, link.ErrDestinationDNSResolution):
 			status = http.StatusBadRequest
 
 		case errors.Is(err, link.ErrShortCodeTaken):

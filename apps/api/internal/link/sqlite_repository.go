@@ -205,7 +205,7 @@ func (r *SQLiteRepository) List(
 
 	defer rows.Close()
 
-	var links []*Link
+	links := make([]*Link, 0)
 
 	for rows.Next() {
 		var link Link
