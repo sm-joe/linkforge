@@ -211,8 +211,10 @@ export async function enableLink(
 export async function deleteLink(
   code: string,
 ): Promise<void> {
+  const shortCode = encodeURIComponent(code.trim());
+
   const response = await fetch(
-    `${API_URL}/api/v1/links/${code}`,
+    `${API_URL}/api/v1/links/${shortCode}`,
     {
       method: "DELETE",
     },

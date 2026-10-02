@@ -6,19 +6,29 @@ export default function Home() {
     <main className="min-h-screen bg-slate-950 text-white">
       <div className="mx-auto flex min-h-screen max-w-6xl flex-col px-6 py-8">
         <header className="flex items-center justify-between">
-          <div className="text-xl font-semibold tracking-tight">
+          <div className="flex items-center gap-3">
+            <div className="h-9 w-9 overflow-hidden rounded-lg">
+              <img
+                src="/linkforge-logo.png"
+                alt="LinkForge"
+                className="h-full w-full object-cover"
+              />
+            </div>
+            
+            <span className="text-xl font-semibold tracking-tight">
             LinkForge
+            </span>
           </div>
 
           <div className="text-sm text-slate-400">
-            Self-hosted URL shortener
+            Self-Hosted URL shortener
           </div>
         </header>
 
         <section className="flex flex-1 items-center justify-center py-20">
           <div className="w-full max-w-3xl text-center">
             <div className="mb-6 inline-flex rounded-full border border-slate-800 bg-slate-900 px-4 py-2 text-sm text-slate-300">
-              Fast · Secure · Self-hosted
+              Fast · Secure · Self-Hosted
             </div>
 
             <h1 className="text-5xl font-bold tracking-tight sm:text-6xl">
