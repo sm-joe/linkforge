@@ -107,8 +107,52 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  sast:
-    name: SAST
+  codeql:
+    name: CodeQL Security Analysis
+    runs-on: ubuntu-latest
+    needs: changes
+    if: |
+      needs.changes.outputs.api == 'true' ||
+      needs.changes.outputs.web == 'true' ||
+      needs.changes.outputs.ci == 'true'
+
+    permissions:
+      contents: read
+      security-events: write
+      actions: read
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - language: go
+            build-mode: autobuild
+          - language: javascript-typescript
+            build-mode: none
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v4
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: ${{ matrix.build-mode }}
+
+      - name: Autobuild
+        if: matrix.language == 'go'
+        uses: github/codeql-action/autobuild@v4
+
+      - name: Analyze
+        uses: github/codeql-action/analyze@v4
+        with:
+          category: "/language:${{ matrix.language }}"
+
+  sca:
+    name: Dependency Security
     runs-on: ubuntu-latest
     needs: changes
     if: |
@@ -122,14 +166,12 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Run Semgrep Scan
-        uses: returntocorp/semgrep-action@v1
+      - name: Run OSV-Scanner
+        uses: google/osv-scanner-action/osv-scanner-action@v2
         with:
-          config: >-
-            p/default
-            p/golang
-            p/javascript
-            p/typescript
+          scan-args: |-
+            --recursive
+            .
 
   dockerfile:
     name: Dockerfile Security
@@ -185,7 +227,8 @@ jobs:
     needs:
       - changes
       - secrets
-      - sast
+      - codeql
+      - sca
       - dockerfile
       - trivy-fs
 
@@ -311,6 +354,7 @@ jobs:
         uses: docker/setup-buildx-action@v4
 
       - name: Publish API Image
+        id: publish-api
         uses: docker/build-push-action@v7
         with:
           context: .
@@ -333,6 +377,7 @@ jobs:
           cosign sign --yes "$IMAGE"
 
       - name: Publish Web Image
+        id: publish-web
         uses: docker/build-push-action@v7
         with:
           context: .
@@ -353,6 +398,25 @@ jobs:
           IMAGE: ${{ env.WEB_IMAGE }}:${{ github.sha }}
         run: |
           cosign sign --yes "$IMAGE"
+
+      - name: Generate immutable deployment references
+        run: |
+          mkdir -p deployment
+
+          cat > deployment/images.env <<EOF
+          LINKFORGE_API_IMAGE=${{ env.API_IMAGE }}@${{ steps.publish-api.outputs.digest }}
+          LINKFORGE_WEB_IMAGE=${{ env.WEB_IMAGE }}@${{ steps.publish-web.outputs.digest }}
+          EOF
+
+          echo "Generated deployment image references:"
+          cat deployment/images.env
+
+      - name: Upload deployment image references
+        uses: actions/upload-artifact@v7
+        with:
+          name: linkforge-deployment-images
+          path: deployment/images.env
+          if-no-files-found: error
 
       - name: Verify Signed API Image
         env:
