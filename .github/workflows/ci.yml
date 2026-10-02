@@ -333,7 +333,14 @@ jobs:
     needs: 
       - changes
       - build
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: |
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/main' &&
+      (
+        needs.changes.outputs.api == 'true' ||
+        needs.changes.outputs.web == 'true' ||
+        needs.changes.outputs.ci == 'true'
+      )
 
     permissions:
       contents: read
