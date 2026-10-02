@@ -1,9 +1,6 @@
 services:
   api:
-    build:
-      context: ../..
-      dockerfile: deploy/docker/api/Dockerfile
-    image: linkforge-api:${IMAGE_TAG:-v1.0.0}
+    image: ${LINKFORGE_API_IMAGE}
     environment:
       PORT: "8080"
       DATABASE_PATH: /app/data/linkforge.db
@@ -11,19 +8,30 @@ services:
       - "8080:8080"
     volumes:
       - linkforge-data:/app/data
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     restart: unless-stopped
 
   web:
-    build:
-      context: ../..
-      dockerfile: deploy/docker/web/Dockerfile
-    image: linkforge-web:${IMAGE_TAG:-v1.0.0}
+    image: ${LINKFORGE_WEB_IMAGE}
     environment:
       NEXT_PUBLIC_API_URL: http://localhost:8080
     ports:
       - "3000:3000"
     depends_on:
       - api
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     restart: unless-stopped
 
 volumes:
