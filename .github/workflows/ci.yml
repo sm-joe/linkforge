@@ -295,7 +295,7 @@ jobs:
           - name: Web
             component: web
             changed: ${{ needs.changes.outputs.web == 'true' || needs.changes.outputs.ci == 'true' }}
-            iimage: ghcr.io/${{ github.repository_owner }}/linkforge-web
+            image: ghcr.io/${{ github.repository_owner }}/linkforge-web
             dockerfile: deploy/docker/web/Dockerfile
             cache-scope: web
 

@@ -10,8 +10,13 @@ COPY go.work ./
 COPY apps/api/go.mod apps/api/go.sum ./apps/api/
 COPY packages/url-validation/go.mod ./packages/url-validation/
 
+WORKDIR /src/apps/api
+
 RUN --mount=type=cache,target=/go/pkg/mod \
-    cd apps/api && go mod download
+    go mod download
+
+# Return to /src before copying source
+WORKDIR /src
 
 # Copy source after dependencies
 COPY apps/api ./apps/api
@@ -34,7 +39,8 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 # ---------- Runtime stage ----------
 FROM alpine:3.24
 
-RUN addgroup -S linkforge \
+RUN apk upgrade --no-cache \
+    && addgroup -S linkforge \
     && adduser -S -G linkforge linkforge \
     && apk add --no-cache ca-certificates \
     && mkdir -p /app/data \
