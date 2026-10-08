@@ -5,6 +5,11 @@ FROM node:26-bookworm-slim AS deps
 
 WORKDIR /app
 
+# Apply latest Debian security updates
+RUN apt-get update \
+    && apt-get upgrade -y \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY apps/web/package.json apps/web/package-lock.json ./
 
 RUN npm install -g npm@latest \
@@ -19,6 +24,11 @@ RUN --mount=type=cache,id=linkforge-web-npm,target=/root/.npm \
 FROM node:26-bookworm-slim AS builder
 
 WORKDIR /app
+
+# Apply latest Debian security updates
+RUN apt-get update \
+    && apt-get upgrade -y \
+    && rm -rf /var/lib/apt/lists/*
 
 COPY --from=deps /app/node_modules ./node_modules
 COPY apps/web ./
@@ -37,7 +47,11 @@ ENV NODE_ENV=production \
     PORT=3000 \
     HOSTNAME=0.0.0.0
 
-RUN rm -rf /usr/local/lib/node_modules/npm \
+# Apply latest Debian security updates and remove npm from runtime
+RUN apt-get update \
+    && apt-get upgrade -y \
+    && rm -rf /var/lib/apt/lists/* \
+    && rm -rf /usr/local/lib/node_modules/npm \
     && rm -f /usr/local/bin/npm /usr/local/bin/npx \
     && groupadd --system linkforge \
     && useradd --system --gid linkforge --create-home linkforge
