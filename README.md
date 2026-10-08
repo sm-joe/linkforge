@@ -1,50 +1,86 @@
+<p align="center">
+  <strong>Portable, self-hosted URL shortener for simple, secure link management.</strong><br>
+  Create short links with custom aliases, expiration, analytics, QR codes,
+  destination validation, and SSRF-resistant health checks.
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/Go-1.27-00ADD8?style=for-the-badge&logo=go&logoColor=white" alt="Go 1.27">
+  <img src="https://img.shields.io/badge/Next.js-16-000000?style=for-the-badge&logo=next.js&logoColor=white" alt="Next.js 16">
+  <img src="https://img.shields.io/badge/React-19-61DAFB?style=for-the-badge&logo=react&logoColor=black" alt="React 19">
+  <img src="https://img.shields.io/badge/TypeScript-5-3178C6?style=for-the-badge&logo=typescript&logoColor=white" alt="TypeScript">
+  <img src="https://img.shields.io/badge/SQLite-3-003B57?style=for-the-badge&logo=sqlite&logoColor=white" alt="SQLite">
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/Self--Hosted-2ea44f?style=flat-square" alt="Self Hosted">
+  <img src="https://img.shields.io/badge/SSRF-Protected-2088FF?style=flat-square" alt="SSRF Protected">
+  <img src="https://img.shields.io/badge/Rate--Limited-6f42c1?style=flat-square" alt="Rate Limited">
+  <img src="https://img.shields.io/badge/Container-Hardened-1904DA?style=flat-square" alt="Container Hardened">
+  <img src="https://img.shields.io/badge/CI%2FCD-Security%20Gated-success?style=flat-square" alt="CI/CD Security Gated">
+</p>
+
 # LinkForge
 
 LinkForge is a portable, self-hosted URL shortener built with Go, Next.js, and SQLite.
 
-It provides a lightweight interface for creating and managing short links while keeping the application easy to run locally or deploy in containers.
+It provides a lightweight interface and REST API for creating and managing short links while keeping deployment simple, portable, and security-focused.
 
 ## Features
 
 - Shorten long URLs
 - Custom aliases
-- Destination URL validation
-- Safe destination validation against private/reserved IP addresses
-- SSRF protection during link health checks
 - Link expiration
 - Enable and disable links
 - Link deletion
-- Link health checks
+- Destination URL validation
+- Private and reserved IP protection
+- SSRF-resistant link health checks
 - Link health history
 - Click analytics
 - Client IP tracking
-- Referrer tracking
-- User-agent tracking
-- Browser analytics
+- Referrer and browser analytics
 - QR code generation
 - REST API
 - SQLite persistence
-- Docker/Podman deployment
-- Container hardening
+- Docker / Podman deployment
+- Non-root container execution
 - API rate limiting
 - Security response headers
 - CORS protection
-- Automated security scanning in CI/CD
+- Automated CI/CD security gates
+- Container image scanning
+- Container image signing and verification
 
 ## Architecture
 
 ```text
-Browser
-   |
-   v
-Next.js Web
-   |
-   v
-Go API
-   |
-   +--> SQLite
-   +--> URL Validation
-   +--> Health / SSRF Validation
+                         +----------------+
+                         |    Browser     |
+                         +-------+--------+
+                                 |
+                                 v
+                         +----------------+
+                         |   Next.js Web  |
+                         +-------+--------+
+                                 |
+                                 v
+                         +----------------+
+                         |     Go API     |
+                         +---+--------+---+
+                             |        |
+                  +----------+        +-----------+
+                  |                               |
+                  v                               v
+            +-----------+                  +---------------+
+            |   SQLite  |                  | URL Validation|
+            +-----------+                  +-------+-------+
+                                                    |
+                                                    v
+                                             +-------------+
+                                             | SSRF / DNS  |
+                                             | Protection  |
+                                             +-------------+
 ```
 
 ## Project Structure
@@ -58,82 +94,55 @@ linkforge/
 │   └── url-validation/
 ├── deploy/
 ├── deployment/
+├── docs/
 ├── .github/
 │   └── workflows/
-├── docs/
-├── README.md
-├── SECURITY.md
-├── CONTRIBUTING.md
+├── .env.example
 ├── CHANGELOG.md
-└── LICENSE
+├── CONTRIBUTING.md
+├── LICENSE
+├── README.md
+└── SECURITY.md
 ```
 
 ## Technology Stack
 
-### Backend
-- Go
-- SQLite
-- REST API
+| Component | Technology |
+|---|---|
+| Backend | Go |
+| Frontend | Next.js / React / TypeScript |
+| Database | SQLite |
+| Containers | Docker / Podman |
+| CI/CD | GitHub Actions |
+| Secret Scanning | Gitleaks |
+| Code Analysis | CodeQL |
+| Dependency Scanning | OSV Scanner |
+| IaC Scanning | Checkov |
+| Container Scanning | Trivy |
+| Image Signing | Cosign |
 
-### Frontend
-- Next.js
-- React
-- TypeScript
+## Security
 
-### Infrastructure
-- Docker / Podman
-- Docker Compose
-- GitHub Actions
+LinkForge treats user-supplied destination URLs as untrusted input.
 
-### Security
-- Gitleaks
-- CodeQL
-- OSV Scanner
-- Checkov
-- Trivy
-- Cosign
+Security controls include:
 
-## Prerequisites
+- URL scheme validation
+- Hostname validation
+- DNS validation
+- Private IP blocking
+- Reserved IP blocking
+- DNS rebinding protection during health checks
+- Redirect blocking during health checks
+- Environment proxy disabled for health requests
+- TLS 1.2 minimum
+- API rate limiting
+- Security response headers
+- Non-root container execution
+- Automated security scanning
+- Container image signing and verification
 
-Install:
-
-- Go
-- Node.js
-- npm
-- Docker or Podman
-- Git
-
-## Local Development
-
-### Backend
-
-```powershell
-cd apps\api
-go test ./...
-go vet ./...
-```
-
-The API listens on:
-
-```text
-http://localhost:8080
-```
-
-### Frontend
-
-```powershell
-cd apps\web
-npm install
-npm run dev
-```
-
-The web application is available at:
-
-```text
-http://localhost:3000
-```
-
-The frontend uses `NEXT_PUBLIC_API_URL` to determine the API endpoint.
+See [`SECURITY.md`](SECURITY.md) for the security policy.
 
 ## API
 
@@ -157,27 +166,49 @@ GET    /api/v1/links/{id}/health/history
 GET    /{short_code}
 ```
 
-See `docs/API.md` for details.
+See [`docs/API.md`](docs/API.md) for the API reference.
 
-## URL Validation and SSRF Protection
+## Local Development
 
-Destination URLs are validated before storage.
+### Backend
 
-Health checks additionally validate resolved destinations, block private/reserved addresses, disable environment proxies, require TLS 1.2 or newer, and do not follow redirects.
+```powershell
+cd apps\api
+go test ./...
+go vet ./...
+```
 
-## Rate Limiting
+### Frontend
 
-API requests are rate limited to reduce abuse and excessive request volume. Health endpoints are exempt for monitoring.
+```powershell
+cd apps\web
+npm install
+npm run dev
+```
 
-## Container Security
+The web application runs on:
 
-Production web containers run as a dedicated non-root user. Container images are scanned as part of CI/CD.
+```text
+http://localhost:3000
+```
 
-## Persistence
+The API runs on:
 
-LinkForge uses SQLite. Container deployments should use persistent storage for the database.
+```text
+http://localhost:8080
+```
 
-## Docker / Podman
+The frontend API endpoint is configured through:
+
+```text
+NEXT_PUBLIC_API_URL
+```
+
+See [`.env.example`](.env.example) for the available configuration.
+
+## Container Deployment
+
+LinkForge supports Docker and Podman-based deployment.
 
 Example API image build:
 
@@ -198,9 +229,11 @@ podman run -d `
   localhost/linkforge-api:latest
 ```
 
-See `docs/DEPLOYMENT.md` for deployment details.
+See [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) for deployment details.
 
 ## Testing
+
+Backend:
 
 ```powershell
 cd apps\api
@@ -208,11 +241,15 @@ go test ./...
 go vet ./...
 ```
 
+URL validation:
+
 ```powershell
 cd packages\url-validation
 go test ./...
 go vet ./...
 ```
+
+Frontend:
 
 ```powershell
 cd apps\web
@@ -222,29 +259,29 @@ npm run build
 
 ## CI/CD
 
-GitHub Actions performs automated validation and security checks including:
+GitHub Actions provides automated:
 
-- Go tests
-- Go vet
+- Testing
+- Static analysis
 - Secret scanning
-- Code analysis
 - Dependency scanning
 - IaC scanning
-- Filesystem scanning
-- Container image scanning
+- Container scanning
+- Image building
+- Image publishing
 - Image signing
 - Image verification
-- Image publishing
 
-Workflow definitions are under `.github/workflows/`.
+Workflow definitions are located under `.github/workflows/`.
 
-## Security
+## Documentation
 
-See `SECURITY.md` for the security policy and vulnerability reporting process.
-
-## Contributing
-
-See `CONTRIBUTING.md`.
+- [`SECURITY.md`](SECURITY.md) — security policy
+- [`CONTRIBUTING.md`](CONTRIBUTING.md) — contribution guidelines
+- [`CHANGELOG.md`](CHANGELOG.md) — project changes
+- [`docs/API.md`](docs/API.md) — API reference
+- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — architecture
+- [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) — deployment guide
 
 ## License
 
