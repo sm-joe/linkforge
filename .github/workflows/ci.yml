@@ -11,10 +11,15 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: linkforge-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 env:
   REGISTRY: ghcr.io
   API_IMAGE: ghcr.io/${{ github.repository_owner }}/linkforge-api
   WEB_IMAGE: ghcr.io/${{ github.repository_owner }}/linkforge-web
+  TRIVY_VERSION: v0.75.0
 
 jobs:
   changes:
@@ -25,12 +30,11 @@ jobs:
       api: ${{ steps.filter.outputs.api }}
       web: ${{ steps.filter.outputs.web }}
       ci: ${{ steps.filter.outputs.ci }}
+      any: ${{ steps.filter.outputs.any }}
 
     steps:
       - name: Checkout
         uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
           
       - name: Path Filter
         id: filter
@@ -50,6 +54,13 @@ jobs:
               - '.github/workflows/**'
               - 'deploy/**'
               - '.dockerignore'
+
+            any:
+              - 'apps/**'
+              - 'packages/**'
+              - 'deploy/**'
+              - '.github/**'
+              - '.dockerignore'
   test:
     name: Go Tests
     runs-on: ubuntu-latest
@@ -61,21 +72,19 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
 
       - name: Setup Go
-        if: matrix.language == 'go'
         uses: actions/setup-go@v7
         with:
           go-version: "1.27"
           cache: true
           cache-dependency-path: |
             apps/api/go.sum
+            packages/url-validation/go.sum
 
       - name: Test API
         working-directory: apps/api
-        run: go test ./...
+        run: go test -race ./...
 
       - name: Vet API
         working-directory: apps/api
@@ -94,16 +103,11 @@ jobs:
     runs-on: ubuntu-latest
     needs: changes
 
-    if: |
-      needs.changes.outputs.api == 'true' ||
-      needs.changes.outputs.web == 'true' ||
-      needs.changes.outputs.ci == 'true'
+    if: needs.changes.outputs.any == 'true'
 
     steps:
       - name: Checkout
         uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
 
       - name: Run Gitleaks Scan
         uses: gitleaks/gitleaks-action@v3
@@ -114,10 +118,8 @@ jobs:
     name: CodeQL Security Analysis
     runs-on: ubuntu-latest
     needs: changes
-    if: |
-      needs.changes.outputs.api == 'true' ||
-      needs.changes.outputs.web == 'true' ||
-      needs.changes.outputs.ci == 'true'
+
+    if: needs.changes.outputs.any == 'true'
 
     permissions:
       contents: read
@@ -130,69 +132,92 @@ jobs:
         include:
           - language: go
             build-mode: manual
+            enabled: ${{ needs.changes.outputs.api == 'true' || needs.changes.outputs.ci == 'true' }}
+
           - language: javascript-typescript
             build-mode: none
+            enabled: ${{ needs.changes.outputs.web == 'true' || needs.changes.outputs.ci == 'true' }}
 
     steps:
       - name: Checkout
+        if: matrix.enabled
         uses: actions/checkout@v7
+
+      - name: Setup Go
+        if: matrix.enabled && matrix.language == 'go'
+        uses: actions/setup-go@v7
         with:
-          fetch-depth: 0
+          go-version: "1.27"
+          cache: true
+          cache-dependency-path: |
+            apps/api/go.sum
+            packages/url-validation/go.sum
 
       - name: Initialize CodeQL
+        if: matrix.enabled
         uses: github/codeql-action/init@v4
         with:
           languages: ${{ matrix.language }}
           build-mode: ${{ matrix.build-mode }}
 
       - name: Build Go projects
-        if: matrix.language == 'go'
+        if: matrix.enabled && matrix.language == 'go'
         run: |
-          go version
           go build ./apps/api/...
           go build ./packages/url-validation/...
 
-      - name: Analyze
+      - name: Analyze CodeQL
+        if: matrix.enabled
         uses: github/codeql-action/analyze@v4
         with:
           category: "/language:${{ matrix.language }}"
 
-  sca:
-    name: Dependency Security
+  trivy-sca:
+    name: Trivy SCA
     runs-on: ubuntu-latest
     needs: changes
-    if: |
-      needs.changes.outputs.api == 'true' ||
-      needs.changes.outputs.web == 'true' ||
-      needs.changes.outputs.ci == 'true'
+
+    if: needs.changes.outputs.any == 'true'
+
+    permissions:
+      contents: read
+      security-events: write
 
     steps:
       - name: Checkout
         uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
 
-      - name: Run OSV-Scanner
-        uses: google/osv-scanner-action/osv-scanner-action@v2.6.0
+      - name: Trivy Dependency Scan
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
-          scan-args: |-
-            --recursive
-            .
+          version: ${{ env.TRIVY_VERSION }}
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          format: sarif
+          output: trivy-sca.sarif
+          exit-code: "1"
+
+      - name: Upload SCA Results to GitHub Code Scanning
+        if: always()
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: trivy-sca.sarif
+          category: trivy-sca
+
 
   dockerfile:
     name: Dockerfile Security
     runs-on: ubuntu-latest
     needs: changes
-    if: |
-      needs.changes.outputs.api == 'true' ||
-      needs.changes.outputs.web == 'true' ||
-      needs.changes.outputs.ci == 'true'
+    
+    if: needs.changes.outputs.any == 'true'
 
     steps:
       - name: Checkout
         uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
 
       - name: Run Checkov Scan
         uses: bridgecrewio/checkov-action@v12
@@ -205,36 +230,45 @@ jobs:
     name: Filesystem Security
     runs-on: ubuntu-latest
     needs: changes
-    if: |
-      needs.changes.outputs.api == 'true' ||
-      needs.changes.outputs.web == 'true' ||
-      needs.changes.outputs.ci == 'true'
+    
+    if: needs.changes.outputs.any == 'true'
+
+    permissions:
+      contents: read
+      security-events: write
 
     steps:
       - name: Checkout
         uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
 
       - name: Trivy Filesystem Scan
         uses: aquasecurity/trivy-action@v0.36.0
         with:
-          version: "v0.74.0"
+          version: ${{ env.TRIVY_VERSION }}
           scan-type: fs
           scan-ref: .
-          format: table
-          exit-code: "1"
-          ignore-unfixed: true
+          scanners: secret,misconfig
+          format: sarif
+          output: trivy-filesystem.sarif
+          exit-code: "0"
           severity: CRITICAL,HIGH
 
+      - name: Upload Filesystem Results to GitHub Code Scanning
+        if: always()
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: trivy-filesystem.sarif
+          category: trivy-filesystem
+
   build:
-    name: Container Build
+    name: Build & Scan ${{ matrix.name }}
     runs-on: ubuntu-latest
     needs:
       - changes
+      - test
       - secrets
       - codeql
-      - sca
+      - trivy-sca
       - dockerfile
       - trivy-fs
 
@@ -247,86 +281,98 @@ jobs:
         needs.changes.outputs.ci == 'true'
       )
 
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: API
+            component: api
+            changed: ${{ needs.changes.outputs.api == 'true' || needs.changes.outputs.ci == 'true' }}
+            image: ghcr.io/${{ github.repository_owner }}/linkforge-api
+            dockerfile: deploy/docker/api/Dockerfile
+            cache-scope: api
+
+          - name: Web
+            component: web
+            changed: ${{ needs.changes.outputs.web == 'true' || needs.changes.outputs.ci == 'true' }}
+            iimage: ghcr.io/${{ github.repository_owner }}/linkforge-web
+            dockerfile: deploy/docker/web/Dockerfile
+            cache-scope: web
+
     permissions:
       contents: read
       packages: write
+      security-events: write
 
     steps:
       - name: Checkout
         uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
 
       - name: Setup Buildx
         uses: docker/setup-buildx-action@v4
 
-      - name: Build API image
+      - name: Login to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build & Push CI Image
+        if: matrix.changed
         uses: docker/build-push-action@v7
         with:
           context: .
-          file: deploy/docker/api/Dockerfile
-          load: true
-          push: false
-          tags: linkforge-api:ci
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          file: ${{ matrix.dockerfile }}
+          push: true
+          tags: ${{ matrix.image }}:ci-${{ github.sha }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.version=${{ github.sha }}
+            org.opencontainers.image.created=${{ github.event.head_commit.timestamp }}
+            cache-from: type=gha,scope=${{ matrix.cache-scope }}
+            cache-to: type=gha,mode=max,scope=${{ matrix.cache-scope }}
 
-      - name: Build Web image
-        uses: docker/build-push-action@v7
-        with:
-          context: .
-          file: deploy/docker/web/Dockerfile
-          load: true
-          push: false
-          tags: linkforge-web:ci
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-      - name: Trivy API Image Scan
+      - name: Trivy Image Scan
+        if: matrix.changed
         uses: aquasecurity/trivy-action@v0.36.0
         with:
-          version: "v0.74.0"
-          image-ref: linkforge-api:ci
-          format: table
+          version: ${{ env.TRIVY_VERSION }}
+          image-ref: ${{ matrix.image }}:ci-${{ github.sha }}
+          scanners: vuln,secret,misconfig
+          format: sarif
+          output: trivy-${{ matrix.component }}-image.sarif
           exit-code: "1"
           ignore-unfixed: true
           severity: CRITICAL,HIGH
 
-      - name: Trivy Web Image Scan
-        uses: aquasecurity/trivy-action@v0.36.0
+      - name: Upload Image Results to GitHub Code Scanning
+        if: always() && matrix.changed
+        uses: github/codeql-action/upload-sarif@v4
         with:
-          version: "v0.74.0"
-          image-ref: linkforge-web:ci
-          format: table
-          exit-code: "1"
-          ignore-unfixed: true
-          severity: CRITICAL,HIGH
+          sarif_file: trivy-${{ matrix.component }}-image.sarif
+          category: trivy-image-${{ matrix.component }}
 
-      - name: Generate API SBOM
+      - name: Generate SBOMs
+        if: matrix.changed
         uses: aquasecurity/trivy-action@v0.36.0
         with:
-          version: "v0.74.0"
-          image-ref: linkforge-api:ci
+          version: ${{ env.TRIVY_VERSION }}
+          image-ref: ${{ matrix.image }}:ci-${{ github.sha }}
           format: cyclonedx
-          output: api-sbom.cdx.json
+          output: ${{ matrix.component }}-sbom.cdx.json
           exit-code: "0"
+          skip-setup-trivy: true
 
-      - name: Generate Web SBOM
-        uses: aquasecurity/trivy-action@v0.36.0
-        with:
-          version: "v0.74.0"
-          image-ref: linkforge-web:ci
-          format: cyclonedx
-          output: web-sbom.cdx.json
-          exit-code: "0"
-
-      - name: Upload SBOM
+      - name: Upload SBOMs
+        if: matrix.changed
         uses: actions/upload-artifact@v7
         with:
-          name: linkforge-sbom
-          path: |
-            api-sbom.cdx.json
-            web-sbom.cdx.json
+          name: linkforge-${{ matrix.component }}-sbom-${{ github.sha }}
+          path: ${{ matrix.component }}-sbom.cdx.json
+          if-no-files-found: ignore
+          retention-days: 7
 
   publish:
     name: Publish to GHCR
@@ -334,6 +380,7 @@ jobs:
     needs: 
       - changes
       - build
+
     if: |
       github.event_name == 'push' &&
       github.ref == 'refs/heads/main' &&
@@ -351,8 +398,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
 
       - name: Login to GHCR
         uses: docker/login-action@v4
@@ -364,86 +409,82 @@ jobs:
       - name: Install Cosign
         uses: sigstore/cosign-installer@v3
 
-      - name: Setup Buildx
-        uses: docker/setup-buildx-action@v4
-
-      - name: Publish API Image
-        id: publish-api
-        uses: docker/build-push-action@v7
-        with:
-          context: .
-          file: deploy/docker/api/Dockerfile
-          push: true
-          tags: |
-            ${{ env.API_IMAGE }}:${{ github.sha }}
-            ${{ env.API_IMAGE }}:latest
-          labels: |
-            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
-            org.opencontainers.image.revision=${{ github.sha }}
-            org.opencontainers.image.version=${{ github.sha }}
-            org.opencontainers.image.created=${{ github.event.head_commit.timestamp }}
-          cache-from: type=gha
-
-      - name: Sign API image
+      - name: Promote API image
+        if: needs.changes.outputs.api == 'true' || needs.changes.outputs.ci == 'true'
         env:
-          IMAGE: ${{ env.API_IMAGE }}:${{ github.sha }}
+          IMAGE: ${{ env.API_IMAGE }}
+          SOURCE: ${{ env.API_IMAGE }}:ci-${{ github.sha }}
         run: |
-          cosign sign --yes "$IMAGE"
+          docker pull "$SOURCE"
 
-      - name: Publish Web Image
-        id: publish-web
-        uses: docker/build-push-action@v7
-        with:
-          context: .
-          file: deploy/docker/web/Dockerfile
-          push: true
-          tags: |
-            ${{ env.WEB_IMAGE }}:${{ github.sha }}
-            ${{ env.WEB_IMAGE }}:latest
-          labels: |
-            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
-            org.opencontainers.image.revision=${{ github.sha }}
-            org.opencontainers.image.version=${{ github.sha }}
-            org.opencontainers.image.created=${{ github.event.head_commit.timestamp }}
-          cache-from: type=gha
+          DIGEST=$(docker inspect \
+            --format='{{index .RepoDigests 0}}' \
+            "$SOURCE")
 
-      - name: Sign Web image
+          docker tag "$SOURCE" "$IMAGE:${{ github.sha }}"
+          docker tag "$SOURCE" "$IMAGE:latest"
+
+          docker push "$IMAGE:${{ github.sha }}"
+          docker push "$IMAGE:latest"
+
+          echo "API image:"
+          echo "$DIGEST"
+
+          cosign sign --yes "$IMAGE:${{ github.sha }}"
+
+          cosign verify "$IMAGE:${{ github.sha }}" --certificate-identity-regexp "https://github.com/${{ github.repository }}/.github/workflows/.*" --certificate-oidc-issuer "https://token.actions.githubusercontent.com"
+
+          echo "LINKFORGE_API_IMAGE=$DIGEST" >> "$GITHUB_ENV"
+
+      - name: Promote Web Image
+        if: needs.changes.outputs.web == 'true' || needs.changes.outputs.ci == 'true'
         env:
-          IMAGE: ${{ env.WEB_IMAGE }}:${{ github.sha }}
+          IMAGE: ${{ env.WEB_IMAGE }}
+          SOURCE: ${{ env.WEB_IMAGE }}:ci-${{ github.sha }}
         run: |
-          cosign sign --yes "$IMAGE"
+          docker pull "$SOURCE"
 
-      - name: Generate immutable deployment references
+          DIGEST=$(docker inspect \
+            --format='{{index .RepoDigests 0}}' \
+            "$SOURCE")
+
+          docker tag "$SOURCE" "$IMAGE:${{ github.sha }}"
+          docker tag "$SOURCE" "$IMAGE:latest"
+
+          docker push "$IMAGE:${{ github.sha }}"
+          docker push "$IMAGE:latest"
+
+          echo "Web image:"
+          echo "$DIGEST"
+
+          cosign sign --yes "$IMAGE:${{ github.sha }}"
+
+          cosign verify "$IMAGE" --certificate-identity-regexp "https://github.com/${{ github.repository }}/.github/workflows/.*" --certificate-oidc-issuer "https://token.actions.githubusercontent.com"
+
+          echo "LINKFORGE_WEB_IMAGE=$DIGEST" >> "$GITHUB_ENV"
+
+      - name: Generate deployment references
         run: |
           mkdir -p deployment
 
-          cat > deployment/images.env <<EOF
-          LINKFORGE_API_IMAGE=${{ env.API_IMAGE }}@${{ steps.publish-api.outputs.digest }}
-          LINKFORGE_WEB_IMAGE=${{ env.WEB_IMAGE }}@${{ steps.publish-web.outputs.digest }}
-          EOF
+          {
+            echo "# Generated from commit ${{ github.sha }}"
 
-          echo "Generated deployment image references:"
+            if [ -n "${LINKFORGE_API_IMAGE:-}" ]; then
+              echo "LINKFORGE_API_IMAGE=${LINKFORGE_API_IMAGE}"
+            fi
+
+            if [ -n "${LINKFORGE_WEB_IMAGE:-}" ]; then
+              echo "LINKFORGE_WEB_IMAGE=${LINKFORGE_WEB_IMAGE}"
+            fi
+          } > deployment/images.env
+
           cat deployment/images.env
 
-      - name: Upload deployment image references
+      - name: Upload deployment references
         uses: actions/upload-artifact@v7
         with:
-          name: linkforge-deployment-images
+          name: linkforge-deployment-images-${{ github.sha }}
           path: deployment/images.env
           if-no-files-found: error
-
-      - name: Verify Signed API Image
-        env:
-          IMAGE: ${{ env.API_IMAGE }}:${{ github.sha }}
-        run: |
-          cosign verify "$IMAGE" \
-            --certificate-identity-regexp "https://github.com/${{ github.repository }}/.github/workflows/.*" \
-            --certificate-oidc-issuer "https://token.actions.githubusercontent.com"
-
-      - name: Verify Signed Web Image
-        env:
-          IMAGE: ${{ env.WEB_IMAGE }}:${{ github.sha }}
-        run: |
-          cosign verify "$IMAGE" \
-            --certificate-identity-regexp "https://github.com/${{ github.repository }}/.github/workflows/.*" \
-            --certificate-oidc-issuer "https://token.actions.githubusercontent.com"
+          retention-days: 30
